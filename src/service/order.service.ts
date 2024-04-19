@@ -12,58 +12,28 @@ export class OrderService {
     private readonly addressesService: AddressesService,
   ) {}
 
-  async createOrder(body: OrderDto & { login: string }) {
-    try {
-      const fromAddress = await this.addressesService.findAddresses(body.from);
-      const toAddress = await this.addressesService.findAddresses(body.to);
+  async createOrder(body: OrderDto & { login: string }): Promise<OrdersDoc> {
+    
+    const fromAddress = await this.addressesService.createAddress(body.from);
+    const toAddress = await this.addressesService.createAddress(body.to);
 
-      if (!fromAddress || !toAddress) {
-        throw new BadRequestException('User is not found');
-      }
-      const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-        const deltaLat = Math.abs(lat2 - lat1);
-        const deltaLon = Math.abs(lon2 - lon1);
-        return Math.sqrt(deltaLat * deltaLat + deltaLon * deltaLon);
-      };
-      const distance = calculateDistance(fromAddress.location.latitude, fromAddress.location.longitude, toAddress.location.latitude, toAddress.location.longitude);
+    const distance = this.calculateDistance(fromAddress.location, toAddress.location);
+    const price = this.determinePrice(body.type, distance);
 
-      if (isNaN(distance)) {
-        throw new BadRequestException('Invalid coordinates or distance calculation');
-      }
+    const orderData = new this.orderModel({
+      ...body,
+      from: fromAddress._id, 
+      to: toAddress._id,     
+      status: 'Active',
+      distance,
+      price,
+    });
 
-      let price: number;
-      switch (body.type) {
-        case 'standard':
-          price = distance * 2.5;
-          break;
-        case 'lite':
-          price = distance * 1.5;
-          break;
-        case 'universal':
-          price = distance * 3;
-          break;
-        default:
-          throw new BadRequestException('Order type is wrong');
-      }
-      if (isNaN(price)) {
-        throw new BadRequestException('Invalid price calculation');
-      }
-      const orderData = {
-        ...body,
-        login: body.login,
-        status: 'Active',
-        distance: distance,
-        price: parseFloat(price.toFixed(2)),
-      };
-      const doc = new this.orderModel(orderData);
-      const order = await doc.save();
-
-      return order;
-    } catch (error) {
-      throw error;
-    }
+    await orderData.save();
+    return orderData.toObject();
   }
 
+  
   calculateDistance(fromLoc, toLoc): number {
     const rad = Math.PI / 180;
     const dLat = rad * (toLoc.latitude - fromLoc.latitude);

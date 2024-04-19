@@ -23,12 +23,8 @@ export class UserService {
         `User with login ${body.login} already exists`,
       );
     }
-
-    
     const doc = new this.userModel(body);
-   
     const user = await doc.save();
-
     return user.toObject();
   }
 
@@ -41,11 +37,8 @@ export class UserService {
     if (!user) {
       throw new UserNotFound(`User with login ${body.login} was not found`);
     }
-
     user.token = randomUUID();
-
     await user.save();
-
     return user.token;
   }
 
@@ -54,37 +47,31 @@ export class UserService {
       {},
       { token: false, password: false, login: false },
     );
-
     return users.map((user) => user.toObject());
   }
+
   async CreateAdmin(body: AdminDto) {
     const isExists = await this.userModel.findOne({
       login: body.login,
     });
-
     if (isExists) {
       throw new UserAlreadyExists(
         `User with login ${body.login} already exists`,
       );
     }
-
     body.role = 'Admin';
     const doc = new this.userModel(body);
     const admin = await doc.save();
-    return admin.toObject();
-  }
+    return admin.toObject();}
 
   async CreateDriver(body: DriverDto) {
     const isExists = await this.userModel.findOne({
       login: body.login,
-    });
-
+    }); 
     if (isExists) {
       throw new UserAlreadyExists(
         `User with login ${body.login} already exists`,
-      );
-    }
-
+      );}
     body.role = 'Driver';
     const doc = new this.userModel(body);
     const driver = await doc.save();

@@ -51,7 +51,7 @@ export class OrdersController {
   async getLast5Fromddresses(@Req() req: Request & { user: UserLeanDoc }) {
     try {
       const { user } = req;
-      const last5Addresses = await this.orderService.Last5From(user.login);
+      const last5Addresses = await this.orderService.getRecentFromAddresses(user.login);
       return last5Addresses;
     } catch (err) {
       throw err;
@@ -64,7 +64,7 @@ export class OrdersController {
   async getLast3ToAddresses(@Req() req: Request & { user: UserLeanDoc }) {
     try {
       const { user } = req;
-      const last3Addresses = await this.orderService.Last3To(user.login);
+      const last3Addresses = await this.orderService.getRecentToAddresses(user.login);
       return last3Addresses;
     } catch (err) {
       throw err;

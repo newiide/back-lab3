@@ -25,7 +25,7 @@ export class UserAuthorizationMiddleware implements NestMiddleware {
 
     if (!authorization) {
       throw new UnauthorizedException(
-        `User do not provide authorization token`,
+        `User do not provide token`,
       );
     }
 
@@ -33,7 +33,7 @@ export class UserAuthorizationMiddleware implements NestMiddleware {
 
     if (!user) {
       throw new BadRequestException(
-        `User with such authorization token was not found`,
+        `User with this token was not found`,
       );
     }
 

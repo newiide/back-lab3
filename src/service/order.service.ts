@@ -1,17 +1,16 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { OrderDto } from '../models';
 import { Orders, OrdersDoc } from '../schema';
 import { AddressesService } from './addresses.service';
-import { Model } from 'mongoose';
-import { InjectModel } from '@nestjs/mongoose';
 
 @Injectable()
 export class OrderService {
   constructor(
-    @InjectModel(Orders.name)
-    private readonly orderModel: Model<OrdersDoc>,
+    @InjectModel(Orders.name) private readonly orderModel: Model<OrdersDoc>,
     private readonly addressesService: AddressesService,
-  ) { }
+  ) {}
 
   async createOrder(body: OrderDto & { login: string }) {
     try {
@@ -21,16 +20,12 @@ export class OrderService {
       if (!fromAddress || !toAddress) {
         throw new BadRequestException('User is not found');
       }
-
       const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
         const deltaLat = Math.abs(lat2 - lat1);
         const deltaLon = Math.abs(lon2 - lon1);
         return Math.sqrt(deltaLat * deltaLat + deltaLon * deltaLon);
       };
-
-
-      const distance = calculateDistance(fromAddress.location.latitude, 
-        fromAddress.location.longitude, toAddress.location.latitude, toAddress.location.longitude);
+      const distance = calculateDistance(fromAddress.location.latitude, fromAddress.location.longitude, toAddress.location.latitude, toAddress.location.longitude);
 
       if (isNaN(distance)) {
         throw new BadRequestException('Invalid coordinates or distance calculation');
@@ -50,11 +45,9 @@ export class OrderService {
         default:
           throw new BadRequestException('Order type is wrong');
       }
-
       if (isNaN(price)) {
         throw new BadRequestException('Invalid price calculation');
       }
-
       const orderData = {
         ...body,
         login: body.login,
@@ -62,7 +55,6 @@ export class OrderService {
         distance: distance,
         price: parseFloat(price.toFixed(2)),
       };
-
       const doc = new this.orderModel(orderData);
       const order = await doc.save();
 
@@ -72,101 +64,77 @@ export class OrderService {
     }
   }
 
-  async getOrders(login: string, role: string): Promise<OrdersDoc[]> {
-    try {
-      let ordersQuery = this.orderModel.find();
-      if (role === 'Driver') {
-        ordersQuery = ordersQuery.where('status').equals('Active');
-      } else if (role !== 'Admin') {
-        ordersQuery = ordersQuery.where('login').equals(login);
-      }
-      const orders = await ordersQuery.exec();
-      return orders;
-    } catch (error) {
-      throw new BadRequestException('Failed');
-    }
+  calculateDistance(fromLoc, toLoc): number {
+    const rad = Math.PI / 180;
+    const dLat = rad * (toLoc.latitude - fromLoc.latitude);
+    const dLon = rad * (toLoc.longitude - fromLoc.longitude);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(rad * fromLoc.latitude) * Math.cos(rad * toLoc.latitude) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return 6371 * c; 
   }
 
-
-  async updateOrderStatus(orderId: string, status: string, role: string) {
-    try {
-      const order = await this.orderModel.findById(orderId);
-      if (!order) {
-        throw new BadRequestException(`Order with id ${orderId} was not found`);
-      }
-      if (order.status === 'Done') {
-        throw new BadRequestException(`Order status can't be changed from Done`);
-      }
-      if (
-        (role === 'Customer' && order.status === 'Active' && status === 'Rejected') ||
-        (role === 'Driver' && (
-          (order.status === 'Active' && status === 'In progress') ||
-          (order.status === 'In progress' && status === 'Done')
-        )) ||
-        (role === 'Admin' && (
-          (order.status === 'Active' && ['Rejected', 'In progress'].includes(status)) ||
-          (order.status === 'In progress' && status === 'Done')
-        ))
-      ) {
-        await this.orderModel.findByIdAndUpdate(orderId, { status });
-        return { message: `Order status changed` };
-      } else {
-        throw new BadRequestException(`Order status can't be changed`);
-      }
-    } catch (error) {
-      throw error;
-    }
+  determinePrice(type: string, distance: number): number {
+    const rate = { standard: 2.5, lite: 1.5, universal: 3 }[type];
+    if (!rate) throw new BadRequestException('Invalid order type');
+    return rate * distance;
   }
 
-  async Last5From(login: string): Promise<string[]> {
-    try {
-      const orders = await this.orderModel.find({ login }, { from: 1, _id: 0 });
-      const differentAddresses = [...new Set(orders.map(order => order.from))];
-      const last5 = differentAddresses.slice(-5);
-      return last5;
-    } catch (error) {
-      throw error;
+  async getOrders(userLogin: string, userRole: string): Promise<OrdersDoc[]> {
+    let query = this.orderModel.find();
+
+    if (userRole === 'Driver') {
+      query = query.where('status', 'Active');
+    } else if (userRole !== 'Admin') {
+      query = query.where('login', userLogin);
     }
+
+    return query.exec();
   }
 
-  async Last3To(login: string): Promise<string[]> {
-    try {
-      const orders = await this.orderModel.find({ login }, { to: 1, _id: 0 });
-      const differentAddresses = [...new Set(orders.map(order => order.to))];
-      const last3 = differentAddresses.slice(-3);
-      return last3;
-    } catch (error) {
-      throw error;
+  async updateOrderStatus(orderId: string, newStatus: string, userRole: string): Promise<{ message: string }> {
+    const order = await this.orderModel.findById(orderId);
+    if (!order) throw new BadRequestException('Order not found');
+    if (order.status === 'Done') throw new BadRequestException('Cannot change status from Done');
+
+    const validStatusChanges = {
+      Customer: ['Rejected'],
+      Driver: ['In progress', 'Done'],
+      Admin: ['Rejected', 'In progress', 'Done'],
+    };
+
+    if (order.status === 'Active' && validStatusChanges[userRole].includes(newStatus)) {
+      order.status = newStatus;
+      await order.save();
+      return { message: 'Order status updated successfully' };
     }
+
+    throw new BadRequestException('Invalid status update attempt');
   }
 
-  async getLowestPrice(login: string): Promise<OrderDto> {
-    try {
-      const orders = await this.orderModel.find({ login });
-      if (orders.length === 0) {
-        return null;
-      }
-      const lowestPrice = orders.reduce((lowest, order) => {
-        return order.price < lowest.price ? order : lowest;
-      });
-      return lowestPrice.toObject();
-    } catch (error) {
-      throw error;
-    }
+  async getRecentFromAddresses(userLogin: string): Promise<string[]> {
+    return this.getRecentAddresses(userLogin, 'from', 5);
   }
 
-  async getBiggestPrice(login: string): Promise<OrderDto> {
-    try {
-      const orders = await this.orderModel.find({ login });
-      if (orders.length === 0) {
-        return null;
-      }
-      const biggestPrice = orders.reduce((lowest, order) => {
-        return order.price > lowest.price ? order : lowest;
-      });
-      return biggestPrice.toObject();
-    } catch (error) {
-      throw error;
-    }
+  async getRecentToAddresses(userLogin: string): Promise<string[]> {
+    return this.getRecentAddresses(userLogin, 'to', 3);
+  }
+
+  async getRecentAddresses(login: string, addressType: 'from' | 'to', limit: number): Promise<string[]> {
+    const orders = await this.orderModel.find({ login }, { [addressType]: 1, _id: 0 }).sort({ _id: -1 }).limit(limit);
+    return Array.from(new Set(orders.map(order => order[addressType])));
+  }
+
+  async getLowestPrice(login: string): Promise<OrderDto | null> {
+    const orders = await this.orderModel.find({ login });
+    if (orders.length === 0) return null;
+    return orders.reduce((lowest, order) => order.price < lowest.price ? order : lowest).toObject();
+  }
+
+  async getBiggestPrice(login: string): Promise<OrderDto | null> {
+    const orders = await this.orderModel.find({ login });
+    if (orders.length === 0) return null;
+    return orders.reduce((highest, order) => order.price > highest.price ? order : highest).toObject();
   }
 }
